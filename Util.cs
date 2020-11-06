@@ -17,18 +17,7 @@ namespace FetchRig6
 {
 
 
-    public enum StreamThreadType
-    {
-        Camera,
-        SingleStream,
-        MergeStreams
-    }
 
-    public enum InOrOut
-    {
-        In,
-        Out
-    }
 
     public enum MainDisplayLoopState
     {
