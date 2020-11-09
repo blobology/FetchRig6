@@ -70,7 +70,8 @@
       <HintPath>packages\SharpDX.XInput.4.2.0\lib\net45\SharpDX.XInput.dll</HintPath>
     </Reference>
     <Reference Include="SpinnakerNETd_v140">
-      <HintPath>..\..\Program Files\FLIR Systems\Spinnaker\bin64\vs2015\SpinnakerNETd_v140.dll</HintPath>
+      <HintPath>..\..\..\..\..\Program Files (x86)\Point Grey Research\Spinnaker\bin64\vs2015\SpinnakerNETd_v140.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />

@@ -79,16 +79,36 @@ namespace FetchRig6
 
         public class CameraStreamInputManager : StreamInputManager
         {
-            StreamChannelInfo streamChannelInfo;
+            StreamChannelInfo channelInfo;
 
             public CameraStreamInputManager()
             {
                 threadType = ThreadType.Camera;
+                
+            }
 
+            public class CameraInputChannelInfo : StreamChannelInfo
+            {
+                public int encodeRate { get; set; }
+                public CameraInputChannelInfo(Size imageSize, int encodeRate=0)
+                {
+                    this.imageSize = imageSize;
+                    this.encodeRate = encodeRate;
+                    isEncodable = (encodeRate > 0) ? true : false;
+                }
+            }
+
+            public class CameraOutputChannelInfo : StreamChannelInfo
+            {
+                public int encodeRate { get; set; }
+                public CameraOutputChannelInfo(Size imageSize, int encodeRate=0)
+                {
+                    this.imageSize = imageSize;
+                    this.encodeRate = encodeRate;
+                    isEncodable = (encodeRate > 0) ? true : false;
+                }
             }
         }
-
-
     }
 
 
