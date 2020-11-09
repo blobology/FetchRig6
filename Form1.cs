@@ -73,17 +73,18 @@ namespace FetchRig6
                 oryxSetupInfos[i] = new Util.OryxSetupInfo();
             }
 
-            bool isCamSettingsShared = true;
-            if (isCamSettingsShared)
+            bool areAllCamSettingsIdentical = true;
+            if (areAllCamSettingsIdentical)
             {
                 Console.WriteLine("\n\n");
                 Console.WriteLine("Cameras have identical settings, shown here:");
                 oryxSetupInfos[0].PrintSettingsToLoad();
                 Console.WriteLine("\n\n");
             }
+
+            // Select Thread Architecture settings for this session:
+
         }
-
-
 
         internal void Exit()
         {
