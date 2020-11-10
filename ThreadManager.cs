@@ -40,139 +40,253 @@ namespace FetchRig6
         MergeStreams
     }
 
-    public enum SetupType
-    {
-        Default,
-        Custom
-    }
 
-    public class StreamChannelInfo
-    {
-        public Size imageSize { get; set; }
-        public bool isEncodable { get; set; }
-
-    }
-
-    public class StreamQueueInfo
-    {
-        public int nChannels { get; set; }
-    }
-
-
-    public class StreamInputManager
+    public class StreamManager
     {
         public ThreadType threadType { get; set; }
+
+        public class InputOutputManager
+        {
+            public bool isEncodable { get; set; }
+            public string[] encodeFileName { get; set; }
+        }
+
+        [Serializable]
+        public class StreamChannel
+        {
+            public Size imageSize { get; set; }
+            public bool isEncodeable { get; }
+            public int encodeRate { get; }
+            public StreamChannel(Size imageSize, int encodeRate=0)
+            {
+                this.imageSize = imageSize;
+                this.encodeRate = encodeRate;
+                isEncodeable = (encodeRate > 0) ? true : false;
+            }
+        }
+
+        public class StreamQueue
+        {
+            public int nChannels { get; }
+            public StreamChannel[] channels { get; }
+        }
     }
 
-    public class StreamOutputManager
+    public class CamStreamManager : StreamManager
     {
-        public ThreadType threadType { get; set; }
+        public ConcurrentQueue<ButtonCommands> messageQueue;
+        public Input input { get; set; }
+        public Output output { get; set; }
+        
+        public CamStreamManager(Size camFrameSize, ConcurrentQueue<ButtonCommands> messageQueue)
+        {
+            this.messageQueue = messageQueue;
+            threadType = ThreadType.Camera;
+
+            // Input Manager Setup:
+            StreamChannel inputChannel = new StreamChannel(imageSize: camFrameSize);
+            input = new Input(inputChannel: inputChannel);
+
+            // Output Manager Setup:
+            Size _outputChannelSize = new Size(width: 802, height: 550);
+            StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
+            output = new Output(outputChannels: _outputChannels);
+        }
+
+        public class Input : InputOutputManager
+        {
+            public StreamChannel inputChannel { get; set; }
+
+            public Input(StreamChannel inputChannel)
+            {
+                this.inputChannel = inputChannel;
+                if (inputChannel.isEncodeable)
+                {
+                    isEncodable = true;
+                    encodeFileName = new string[1] { "test" };
+                }
+            }
+        }
+
+        [Serializable]
+        public class Output : InputOutputManager
+        {
+            public StreamChannel[] outputChannels { get; set; }
+            public ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamQueue;
+            public int nChannels { get; }
+
+            public Output(StreamChannel[] outputChannels)
+            {
+                nChannels = outputChannels.Length;
+                this.outputChannels = outputChannels;
+                encodeFileName = new string[nChannels];
+                for (int i = 0; i < outputChannels.Length; i++)
+                {
+                    if (outputChannels[i].isEncodeable)
+                    {
+                        isEncodable = true;
+                        encodeFileName[i] = "test_" + i.ToString();
+                    }
+                    else { encodeFileName[i] = null; }
+                }
+                streamQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
+            }
+        }
     }
 
-    public class CameraStreamManager
+    public class SingleCamStreamManager : StreamManager
     {
-        public InputManager inputManager { get; }
-        public OutputManager outputManager { get; }
-        public ConcurrentQueue<ButtonCommands> commandQueue { get; }
+        public ConcurrentQueue<ButtonCommands> messageQueue;
+        public Input input { get; set; }
+        public Output output { get; set; }
 
-        public CameraStreamManager(ConcurrentQueue<ButtonCommands> commandQueue)
+        public SingleCamStreamManager(CamStreamManager.Output camOutputManager, ConcurrentQueue<ButtonCommands> messageQueue)
         {
-            this.commandQueue = commandQueue;
+            this.messageQueue = messageQueue;
 
-            InputManager.InputChannel _inputChannel = new InputManager.InputChannel();
-            inputManager = new InputManager(inputChannelInfo: _inputChannel);
+            // Inherit input specs from CamStreamManager
+            input = new Input(inputChannels: camOutputManager.outputChannels, streamQueue: camOutputManager.streamQueue);
 
-            OutputManager.OutputChannel[] _outputChannels = new OutputManager.OutputChannel[1] { new OutputManager.OutputChannel() };
-            outputManager = new OutputManager(outputChannelInfos: _outputChannels);
+            // Specify output specs:
+            Size _outputChannelSize = new Size(width: 802, height: 550);
+            StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
+            output = new Output(outputChannels: _outputChannels);
         }
 
-        public CameraStreamManager(InputManager inputManager, OutputManager outputManager,
-            ConcurrentQueue<ButtonCommands> commandQueue)
+        public class Input : InputOutputManager
         {
-            this.inputManager = inputManager;
-            this.outputManager = outputManager;
-            this.commandQueue = commandQueue;
-        }
-
-        public class InputManager : StreamInputManager
-        {
-            InputChannel inputChannelInfo;
-
-            public InputManager(InputChannel inputChannelInfo)
+            public StreamChannel[] inputChannels { get; set; }
+            public ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamQueue { get; }
+            public int nChannels { get; set; }
+            public Input(StreamChannel[] inputChannels, ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamQueue)
             {
-                threadType = ThreadType.Camera;
-                this.inputChannelInfo = inputChannelInfo;
-            }
-
-            public class InputChannel : StreamChannelInfo
-            {
-                public int encodeRate { get; set; }
-
-                public InputChannel()
+                nChannels = inputChannels.Length;
+                this.inputChannels = inputChannels;
+                encodeFileName = new string[nChannels];
+                for (int i = 0; i < inputChannels.Length; i++)
                 {
-                    Size _camFrameSize = new Size(width: 3208, height: 2200);
-                    imageSize = _camFrameSize;
-                    encodeRate = 0;
-                    isEncodable = (encodeRate > 0) ? true : false;
+                    if (inputChannels[i].isEncodeable)
+                    {
+                        isEncodable = true;
+                        encodeFileName[i] = "inputFileTest_" + i.ToString();
+                    }
+                    else { encodeFileName[i] = null; }
                 }
-                public InputChannel(Size imageSize, int encodeRate=0)
-                {
-                    this.imageSize = imageSize;
-                    this.encodeRate = encodeRate;
-                    isEncodable = (encodeRate > 0) ? true : false;
-                }
+                this.streamQueue = streamQueue;
             }
         }
 
-        public class OutputManager : StreamOutputManager
+        [Serializable]
+        public class Output : InputOutputManager
         {
-            OutputChannel[] outputChannelInfos;
-            ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamOutputQueue;
+            public StreamChannel[] outputChannels { get; set; }
+            public ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamQueue { get; }
+            public int nChannels { get; }
 
-            public OutputManager(OutputChannel[] outputChannelInfos)
+            public Output(StreamChannel[] outputChannels)
             {
-                this.outputChannelInfos = outputChannelInfos;
-                streamOutputQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
-            }
-
-            public class OutputChannel : StreamChannelInfo
-            {
-                public int encodeRate { get; set; }
-                public int enqueueRate { get; set; }
-
-                public OutputChannel()
+                nChannels = outputChannels.Length;
+                this.outputChannels = outputChannels;
+                encodeFileName = new string[nChannels];
+                for (int i = 0; i < outputChannels.Length; i++)
                 {
-                    imageSize = new Size(width: 3208, height: 2200);
-                    encodeRate = 0;
-                    isEncodable = (encodeRate > 0) ? true : false;
-                    enqueueRate = 1;
+                    if (outputChannels[i].isEncodeable)
+                    {
+                        isEncodable = true;
+                        encodeFileName[i] = "outputFileTest_" + i.ToString();
+                    }
+                    else { encodeFileName[i] = null; }
                 }
-                public OutputChannel(Size imageSize, int encodeRate=0, int enqueueRate=1)
-                {
-                    this.imageSize = imageSize;
-                    this.encodeRate = encodeRate;
-                    isEncodable = (encodeRate > 0) ? true : false;
-                    this.enqueueRate = enqueueRate;
-                }
+                streamQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
             }
         }
     }
 
+    public class MergeStreamsManager : StreamManager
+    {
+        public ConcurrentQueue<ButtonCommands> messageQueue;
+        public Input input { get; set; }
+        public Output output { get; set; }
 
-    
+        public MergeStreamsManager(SingleCamStreamManager.Output[] singleStreamOutputManagers, ConcurrentQueue<ButtonCommands> messageQueue)
+        {
+            this.messageQueue = messageQueue;
+
+            int nInputs = singleStreamOutputManagers.Length;
+            StreamChannel[][] _inputChannels = new StreamChannel[nInputs][];
+            ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>[] _streamQueues = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>[nInputs];
+            for (int i = 0; i < nInputs; i++)
+            {
+                _inputChannels[i] = singleStreamOutputManagers[i].outputChannels;
+                _streamQueues[i] = singleStreamOutputManagers[i].streamQueue;
+            }
+            input = new Input(inputChannels: _inputChannels, streamQueues: _streamQueues);
+
+            // Specify output specs:
+            Size _outputChannelSize = new Size(width: 802, height: 1100);
+            StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
+            output = new Output(outputChannels: _outputChannels);
+        }
+
+        public class Input : InputOutputManager
+        {
+            public int nInputQueues { get; }
+            public StreamChannel[][] inputChannels { get; set; }
+            public ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>[] streamQueues { get; }
+            public int[] nChannels { get; set; }
+            public Input(StreamChannel[][] inputChannels, ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>[] streamQueues)
+            {
+                nInputQueues = inputChannels.Length;
+                this.inputChannels = inputChannels;
+                this.streamQueues = streamQueues;
+
+                nChannels = new int[nInputQueues];
+                for (int i = 0; i < nInputQueues; i++)
+                {
+                    nChannels[i] = inputChannels[i].Length;
+                }
+
+                // Disallow encoding of input streams on this thread:
+                isEncodable = false;
+                encodeFileName = null;
+            }
+        }
+
+        [Serializable]
+        public class Output : InputOutputManager
+        {
+            StreamChannel[] outputChannels { get; set; }
+            ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> displayQueue { get; }
+            public int nChannels { get; }
+
+            public Output(StreamChannel[] outputChannels)
+            {
+                nChannels = outputChannels.Length;
+                this.outputChannels = outputChannels;
+                encodeFileName = new string[nChannels];
+                for (int i = 0; i < outputChannels.Length; i++)
+                {
+                    if (outputChannels[i].isEncodeable)
+                    {
+                        isEncodable = true;
+                        encodeFileName[i] = "outputFileTest_" + i.ToString();
+                    }
+                    else { encodeFileName[i] = null; }
+                }
+                displayQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
+            }
+        }
+    }
 
 
     public class ThreadManager
     {
         Thread[][] threads;
-        ConcurrentQueue<ButtonCommands>[][] commandQueues;
         StreamArchitecture architecture { get; }
         string[] sessionPaths { get; }
         StreamGraph streamGraph { get; }
         ManagedCamera[] managedCameras;
         Util.OryxSetupInfo[] oryxSetups;
-
-
 
         public ThreadManager(StreamArchitecture architecture, string[] sessionPaths, ManagedCamera[] managedCameras, Util.OryxSetupInfo[] oryxSetups)
         {
@@ -181,74 +295,9 @@ namespace FetchRig6
             this.managedCameras = managedCameras;
             this.oryxSetups = oryxSetups;
             streamGraph = new StreamGraph(architecture);
-            CommandQueueAndThreadDeclaration();
-            ThreadArgumentSetup();
-        }
-
-        void CommandQueueAndThreadDeclaration()
-        {
-            commandQueues = new ConcurrentQueue<ButtonCommands>[streamGraph.nThreadLayers][];
-            threads = new Thread[streamGraph.nThreadLayers][];
-            for (int i = 0; i < streamGraph.nThreadLayers; i++)
-            {
-                commandQueues[i] = new ConcurrentQueue<ButtonCommands>[streamGraph.nThreadsPerLayer[i]];
-                threads[i] = new Thread[streamGraph.nThreadsPerLayer[i]];
-                for (int j = 0; j < streamGraph.nThreadsPerLayer[i]; j++)
-                {
-                    commandQueues[i][j] = new ConcurrentQueue<ButtonCommands>();
-                }
-            }
-        }
-
-        void ThreadArgumentSetup()
-        {
-            
-            for (int i = 0; i < streamGraph.nThreadLayers; i++)
-            {
-                
-                for (int j = 0; j < streamGraph.nThreadsPerLayer[i]; j++)
-                {
-                    if (streamGraph.graph[i][j] == ThreadType.Camera)
-                    {
-                        CameraThreadSetup(camNumber: j);
-                    }
-                    else if (streamGraph.graph[i][j] == ThreadType.SingleCameraStream)
-                    {
-                        SingleCameraStreamThreadSetup(camNumber: j);
-                    }
-                    else if (streamGraph.graph[i][j] == ThreadType.MergeStreams)
-                    {
-                        MergeCameraStreamsThreadSetup();
-                    }
-                }
-            }
-        }
-
-        void CameraThreadSetup(int camNumber, int layer=0)
-        {
-            int _camNumber = camNumber;
-            int _layer = layer;
-            string _sessionPath = string.Copy(sessionPaths[_camNumber]);
-
-            // setup input channel specs
-            CameraStreamManager _camManager = new CameraStreamManager(commandQueue: commandQueues[_layer][_camNumber]);
-
-            threads[_layer][_camNumber] = new Thread(() => new OryxCamera(camNumber: _camNumber, managedCamera: managedCameras[_camNumber],
-                sessionPath: _sessionPath, manager: _camManager, setupInfo: oryxSetups[_camNumber]));
-
-            threads[_layer][_camNumber].IsBackground = false;
-            threads[_layer][_camNumber].Priority = ThreadPriority.Highest;
-        }
-
-        void SingleCameraStreamThreadSetup(int camNumber, int layer=1)
-        {
 
         }
 
-        void MergeCameraStreamsThreadSetup(int layer=2)
-        {
-
-        }
 
         public void StartThreads()
         {
@@ -267,9 +316,12 @@ namespace FetchRig6
             public int nThreadLayers { get; }
             public int[] nThreadsPerLayer { get; }
             public ThreadType[][] graph { get; }
+            public StreamArchitecture architecture { get; private set; }
 
             public StreamGraph(StreamArchitecture architecture)
             {
+                this.architecture = architecture;
+
                 if (architecture == StreamArchitecture.ThreeLevelBasic)
                 {
                     nThreadLayers = 3;
@@ -282,6 +334,45 @@ namespace FetchRig6
                 else
                 {
                     throw new ArgumentException(message: "Only ThreeLevelBasic StreamArchitecture is currently supported.");
+                }
+            }
+        }
+
+        public class ManagerBundle
+        {
+            private StreamGraph graph;
+            public CamStreamManager[] camStreamManagers { get; set; }
+            public SingleCamStreamManager[] singleStreamManagers { get; }
+            public ConcurrentQueue<ButtonCommands>[][] messageQueues { get; private set; }
+            public ManagerBundle(StreamGraph graph)
+            {
+                this.graph = graph;
+                MessageQueueSetup();
+                Setup();
+            }
+
+            void MessageQueueSetup()
+            {
+                for (int i = 0; i < graph.nThreadLayers; i++)
+                {
+                    for (int j = 0; j < graph.nThreadsPerLayer[i]; j++)
+                    {
+                        messageQueues[i][j] = new ConcurrentQueue<ButtonCommands>();
+                    }
+                }
+            }
+
+            void Setup()
+            {
+                if (graph.architecture != StreamArchitecture.ThreeLevelBasic)
+                {
+                    throw new ArgumentException(message: "Only StreamArchitecture.ThreeLevelBasic is currently supported.");
+                }
+
+                for (int j = 0; j < graph.nThreadsPerLayer[0]; j++)
+                {
+
+                    //camStreamManagers[j] = new CamStreamManager();
                 }
             }
         }

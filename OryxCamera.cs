@@ -16,7 +16,7 @@ namespace FetchRig6
     {
         readonly int camNumber;
         private string sessionPath;
-        private CameraStreamManager manager;
+        private CamStreamManager manager;
         private ConcurrentQueue<ButtonCommands> commandQueue;
         private ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamOutputQueue;
         private readonly Size fullFrameSize;
@@ -29,14 +29,14 @@ namespace FetchRig6
         public INodeMap nodeMap;
         public string settingsFileName;
 
-        public OryxCamera(int camNumber, IManagedCamera managedCamera, string sessionPath, CameraStreamManager manager, Util.OryxSetupInfo setupInfo)
+        public OryxCamera(int camNumber, IManagedCamera managedCamera, string sessionPath, CamStreamManager manager, Util.OryxSetupInfo setupInfo)
         {
             this.camNumber = camNumber;
             this.managedCamera = managedCamera;
             this.sessionPath = sessionPath;
             this.manager = manager;
             this.setupInfo = setupInfo;
-            commandQueue = manager.commandQueue;
+            commandQueue = manager.messageQueue;
             fullFrameSize = this.setupInfo.frameSize;
             settingsFileName = this.sessionPath + @"\" + "cam" + this.camNumber.ToString() + @"_cameraSettings.txt";
 
