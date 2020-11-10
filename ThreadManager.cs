@@ -79,7 +79,6 @@ namespace FetchRig6
         {
             this.commandQueue = commandQueue;
 
-            // Use default settings for input channel:
             InputManager.InputChannel _inputChannel = new InputManager.InputChannel();
             inputManager = new InputManager(inputChannelInfo: _inputChannel);
 
@@ -249,6 +248,18 @@ namespace FetchRig6
         void MergeCameraStreamsThreadSetup(int layer=2)
         {
 
+        }
+
+        public void StartThreads()
+        {
+            for (int i = 0; i < streamGraph.nThreadLayers; i++)
+            {
+
+                for (int j = 0; j < streamGraph.nThreadsPerLayer[i]; j++)
+                {
+                    threads[i][j].Start();
+                }
+            }
         }
 
         public class StreamGraph
