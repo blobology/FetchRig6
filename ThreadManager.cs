@@ -23,6 +23,7 @@ using Emgu.CV.Tracking;
 using System.Security.Cryptography.X509Certificates;
 using System.ComponentModel.Design;
 using System.Security.Policy;
+using System.CodeDom;
 
 namespace FetchRig6
 {
@@ -284,7 +285,8 @@ namespace FetchRig6
         Thread[][] threads;
         StreamArchitecture architecture { get; }
         string[] sessionPaths { get; }
-        StreamGraph streamGraph { get; }
+        StreamGraph streamGraph { get; set; }
+        ManagerBundle managerBundle { get; set; }
         ManagedCamera[] managedCameras;
         Util.OryxSetupInfo[] oryxSetups;
 
@@ -295,7 +297,7 @@ namespace FetchRig6
             this.managedCameras = managedCameras;
             this.oryxSetups = oryxSetups;
             streamGraph = new StreamGraph(architecture);
-
+            managerBundle = new ManagerBundle(graph: streamGraph);
         }
 
 
@@ -342,7 +344,9 @@ namespace FetchRig6
         {
             private StreamGraph graph;
             public CamStreamManager[] camStreamManagers { get; set; }
-            public SingleCamStreamManager[] singleStreamManagers { get; }
+            public SingleCamStreamManager[] singleStreamManagers { get; set; }
+            public MergeStreamsManager mergeStreamsManager { get; set; }
+            
             public ConcurrentQueue<ButtonCommands>[][] messageQueues { get; private set; }
             public ManagerBundle(StreamGraph graph)
             {
@@ -371,9 +375,20 @@ namespace FetchRig6
 
                 for (int j = 0; j < graph.nThreadsPerLayer[0]; j++)
                 {
-
-                    //camStreamManagers[j] = new CamStreamManager();
+                    Size _camFrameSize = new Size(width: 3208, height: 2200);
+                    camStreamManagers[j] = new CamStreamManager(camFrameSize: _camFrameSize, messageQueue: messageQueues[0][j]);
                 }
+
+                SingleCamStreamManager.Output[] _singleStreamOutputs = new SingleCamStreamManager.Output[graph.nThreadsPerLayer[1]];
+                for (int j = 0; j < graph.nThreadsPerLayer[1]; j++)
+                {
+                    CamStreamManager.Output _camOutput = camStreamManagers[j].output;
+                    singleStreamManagers[j] = new SingleCamStreamManager(camOutputManager: _camOutput, messageQueue: messageQueues[1][j]);
+
+                    _singleStreamOutputs[j] = singleStreamManagers[j].output;
+                }
+
+                mergeStreamsManager = new MergeStreamsManager(singleStreamOutputManagers: _singleStreamOutputs, messageQueue: messageQueues[2][0]);
             }
         }
     }
