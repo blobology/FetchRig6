@@ -302,7 +302,7 @@ namespace FetchRig6
             public string _Value { get; set; }
         }
 
-
+        [Serializable]
         public class OryxSetupInfo
         {
             public SetupStyleEnum setupStyle;

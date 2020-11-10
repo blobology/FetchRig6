@@ -64,7 +64,7 @@ namespace FetchRig6
             }
 
             // Create or select folder to write video data:
-            sessionPaths = Util.SetDataWritePaths(animalName: Util.AnimalName.Charlie, nCameras: nCameras);
+            sessionPaths = Util.SetDataWritePaths(animalName: Util.AnimalName.Charlie);
 
             // Initialize OryxSetupInfo Object to pass to camera constructors upon initialization:
             oryxSetupInfos = new Util.OryxSetupInfo[nCameras];

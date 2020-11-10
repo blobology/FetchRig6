@@ -40,6 +40,12 @@ namespace FetchRig6
         MergeStreams
     }
 
+    public enum SetupType
+    {
+        Default,
+        Custom
+    }
+
     public class StreamChannelInfo
     {
         public Size imageSize { get; set; }
@@ -65,33 +71,52 @@ namespace FetchRig6
 
     public class CameraStreamManager
     {
-        CameraStreamInputManager inputManager;
-        CameraStreamOutputManager outputManager;
-        ConcurrentQueue<ButtonCommands> commandQueue;
+        public InputManager inputManager { get; }
+        public OutputManager outputManager { get; }
+        public ConcurrentQueue<ButtonCommands> commandQueue { get; }
 
-        public CameraStreamManager(CameraStreamInputManager inputManager, CameraStreamOutputManager outputManager, ConcurrentQueue<ButtonCommands> commandQueue)
+        public CameraStreamManager(ConcurrentQueue<ButtonCommands> commandQueue)
+        {
+            this.commandQueue = commandQueue;
+
+            // Use default settings for input channel:
+            InputManager.InputChannel _inputChannel = new InputManager.InputChannel();
+            inputManager = new InputManager(inputChannelInfo: _inputChannel);
+
+            OutputManager.OutputChannel[] _outputChannels = new OutputManager.OutputChannel[1] { new OutputManager.OutputChannel() };
+            outputManager = new OutputManager(outputChannelInfos: _outputChannels);
+        }
+
+        public CameraStreamManager(InputManager inputManager, OutputManager outputManager,
+            ConcurrentQueue<ButtonCommands> commandQueue)
         {
             this.inputManager = inputManager;
             this.outputManager = outputManager;
             this.commandQueue = commandQueue;
         }
 
-        public class CameraStreamInputManager : StreamInputManager
+        public class InputManager : StreamInputManager
         {
-            public Size fullCameraFrameSize { get; }
-            CameraInputChannelInfo inputChannelInfo;
+            InputChannel inputChannelInfo;
 
-            public CameraStreamInputManager(Size fullCameraFrameSize)
+            public InputManager(InputChannel inputChannelInfo)
             {
-                this.fullCameraFrameSize = fullCameraFrameSize;
                 threadType = ThreadType.Camera;
-                inputChannelInfo = new CameraInputChannelInfo(imageSize: fullCameraFrameSize, encodeRate: 0);
+                this.inputChannelInfo = inputChannelInfo;
             }
 
-            public class CameraInputChannelInfo : StreamChannelInfo
+            public class InputChannel : StreamChannelInfo
             {
                 public int encodeRate { get; set; }
-                public CameraInputChannelInfo(Size imageSize, int encodeRate=0)
+
+                public InputChannel()
+                {
+                    Size _camFrameSize = new Size(width: 3208, height: 2200);
+                    imageSize = _camFrameSize;
+                    encodeRate = 0;
+                    isEncodable = (encodeRate > 0) ? true : false;
+                }
+                public InputChannel(Size imageSize, int encodeRate=0)
                 {
                     this.imageSize = imageSize;
                     this.encodeRate = encodeRate;
@@ -100,25 +125,35 @@ namespace FetchRig6
             }
         }
 
-        public class CameraStreamOutputManager : StreamOutputManager
+        public class OutputManager : StreamOutputManager
         {
-            CameraOutputChannelInfo[] outputChannelInfos;
+            OutputChannel[] outputChannelInfos;
             ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamOutputQueue;
 
-            public CameraStreamOutputManager(CameraOutputChannelInfo[] outputChannelInfos)
+            public OutputManager(OutputChannel[] outputChannelInfos)
             {
                 this.outputChannelInfos = outputChannelInfos;
                 streamOutputQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
             }
 
-            public class CameraOutputChannelInfo : StreamChannelInfo
+            public class OutputChannel : StreamChannelInfo
             {
                 public int encodeRate { get; set; }
-                public CameraOutputChannelInfo(Size imageSize, int encodeRate = 0)
+                public int enqueueRate { get; set; }
+
+                public OutputChannel()
+                {
+                    imageSize = new Size(width: 3208, height: 2200);
+                    encodeRate = 0;
+                    isEncodable = (encodeRate > 0) ? true : false;
+                    enqueueRate = 1;
+                }
+                public OutputChannel(Size imageSize, int encodeRate=0, int enqueueRate=1)
                 {
                     this.imageSize = imageSize;
                     this.encodeRate = encodeRate;
                     isEncodable = (encodeRate > 0) ? true : false;
+                    this.enqueueRate = enqueueRate;
                 }
             }
         }
@@ -133,18 +168,25 @@ namespace FetchRig6
         Thread[][] threads;
         ConcurrentQueue<ButtonCommands>[][] commandQueues;
         StreamArchitecture architecture { get; }
+        string[] sessionPaths { get; }
         StreamGraph streamGraph { get; }
+        ManagedCamera[] managedCameras;
+        Util.OryxSetupInfo[] oryxSetups;
 
 
-        public ThreadManager(StreamArchitecture architecture)
+
+        public ThreadManager(StreamArchitecture architecture, string[] sessionPaths, ManagedCamera[] managedCameras, Util.OryxSetupInfo[] oryxSetups)
         {
             this.architecture = architecture;
+            this.sessionPaths = sessionPaths;
+            this.managedCameras = managedCameras;
+            this.oryxSetups = oryxSetups;
             streamGraph = new StreamGraph(architecture);
-            CommandQueueAndThreadSetup();
+            CommandQueueAndThreadDeclaration();
             ThreadArgumentSetup();
         }
 
-        void CommandQueueAndThreadSetup()
+        void CommandQueueAndThreadDeclaration()
         {
             commandQueues = new ConcurrentQueue<ButtonCommands>[streamGraph.nThreadLayers][];
             threads = new Thread[streamGraph.nThreadLayers][];
@@ -185,7 +227,18 @@ namespace FetchRig6
 
         void CameraThreadSetup(int camNumber, int layer=0)
         {
+            int _camNumber = camNumber;
+            int _layer = layer;
+            string _sessionPath = string.Copy(sessionPaths[_camNumber]);
 
+            // setup input channel specs
+            CameraStreamManager _camManager = new CameraStreamManager(commandQueue: commandQueues[_layer][_camNumber]);
+
+            threads[_layer][_camNumber] = new Thread(() => new OryxCamera(camNumber: _camNumber, managedCamera: managedCameras[_camNumber],
+                sessionPath: _sessionPath, manager: _camManager, setupInfo: oryxSetups[_camNumber]));
+
+            threads[_layer][_camNumber].IsBackground = false;
+            threads[_layer][_camNumber].Priority = ThreadPriority.Highest;
         }
 
         void SingleCameraStreamThreadSetup(int camNumber, int layer=1)
