@@ -59,11 +59,13 @@ namespace FetchRig6
             public Size imageSize { get; set; }
             public bool isEncodeable { get; }
             public int encodeRate { get; }
-            public StreamChannel(Size imageSize, int encodeRate=0)
+            public int enqueueOrDequeueRate { get; }
+            public StreamChannel(Size imageSize, int encodeRate=0, int enqueueOrDequeueRate=1)
             {
                 this.imageSize = imageSize;
                 this.encodeRate = encodeRate;
                 isEncodeable = (encodeRate > 0) ? true : false;
+                this.enqueueOrDequeueRate = enqueueOrDequeueRate;
             }
         }
     }
@@ -324,7 +326,7 @@ namespace FetchRig6
                     if (streamGraph.graph[i][j] == ThreadType.Camera)
                     {
                         threads[i][j] = new Thread(() => new OryxCamera(camNumber: _j, managedCamera: managedCameras[_j],
-                            sessionPath: _sessionPath, manager: managerBundle.camStreamManagers[_j], setupInfo: oryxSetups[_j]));
+                            manager: managerBundle.camStreamManagers[_j], setupInfo: oryxSetups[_j]));
                     }
                     else if (streamGraph.graph[i][j] == ThreadType.SingleCameraStream)
                     {

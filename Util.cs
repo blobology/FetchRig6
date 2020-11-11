@@ -12,6 +12,8 @@ using System.Runtime.CompilerServices;
 using Emgu.CV.Util;
 using System.Text;
 using System.ComponentModel.Design;
+using SpinnakerNET;
+using SpinnakerNET.GenApi;
 
 namespace FetchRig6
 {
@@ -20,6 +22,14 @@ namespace FetchRig6
 
 
     public enum MainDisplayLoopState
+    {
+        Waiting,
+        Streaming,
+        Recording,
+        Exit
+    }
+
+    public enum BasicCamLoopState
     {
         Waiting,
         Streaming,
@@ -50,13 +60,13 @@ namespace FetchRig6
     {
         public int streamCtr { get; }
         public long frameID { get; }
-        public long frameTimestamp { get; }
+        public long timestamp { get; }
 
-        public FrameMetaData(int streamCtr, long frameID, long frameTimestamp)
+        public FrameMetaData(int streamCtr, long frameID, long timestamp)
         {
             this.streamCtr = streamCtr;
             this.frameID = frameID;
-            this.frameTimestamp = frameTimestamp;
+            this.timestamp = timestamp;
         }
     }
 
@@ -488,6 +498,37 @@ namespace FetchRig6
                         entry.Value._NodeMap,
                         entry.Value._Value);
                 }
+            }
+        }
+
+        public static void CloseOryxCamera(IManagedCamera managedCamera, INodeMap nodeMap, int camNumber, CloseCameraMethod closeMethod)
+        {
+            if (!managedCamera.IsInitialized())
+            {
+                Console.WriteLine("Camera number {0} not initialized. Cannot execute DeviceReset or FactoryReset command", camNumber.ToString());
+                return;
+            }
+
+            if (managedCamera.IsStreaming())
+            {
+                managedCamera.EndAcquisition();
+                Console.WriteLine("EndAcquisition executed from CloseOryxCamera block on camera {0}", camNumber.ToString());
+            }
+
+            if (closeMethod == CloseCameraMethod.DeInit)
+            {
+                managedCamera.DeInit();
+                Console.WriteLine("Camera number {0} deinitialized.", camNumber.ToString());
+            }
+            else if (closeMethod == CloseCameraMethod.DeInitAndDeviceReset)
+            {
+                nodeMap.GetNode<ICommand>("DeviceReset").Execute();
+                Console.WriteLine("DeviceReset command executed on camera number {0}.", camNumber.ToString());
+            }
+            else if (closeMethod == CloseCameraMethod.DeInitAndFactoryReset)
+            {
+                nodeMap.GetNode<ICommand>("FactoryReset").Execute();
+                Console.WriteLine("FactoryReset command executed on camera number {0}.", camNumber.ToString());
             }
         }
     }

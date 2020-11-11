@@ -9,42 +9,44 @@ using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Policy;
+using System.Windows.Forms;
 
 namespace FetchRig6
 {
     public class OryxCamera
     {
-        readonly int camNumber;
-        private string sessionPath;
+        
+
         private CamStreamManager manager;
-        private ConcurrentQueue<ButtonCommands> commandQueue;
+        private ConcurrentQueue<ButtonCommands> messageQueue;
         private ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamOutputQueue;
-        private readonly Size fullFrameSize;
+        private bool isEncodeable;
 
         // These fields will be accessed by an OryxCameraSettings object to set and save camera settings.
+        public readonly int camNumber;
+        public readonly string sessionPath;
         public IManagedCamera managedCamera;
         public Util.OryxSetupInfo setupInfo;
         public INodeMap nodeMapTLDevice;
         public INodeMap nodeMapTLStream;
         public INodeMap nodeMap;
-        public string settingsFileName;
 
-        public OryxCamera(int camNumber, IManagedCamera managedCamera, string sessionPath, CamStreamManager manager, Util.OryxSetupInfo setupInfo)
+        public OryxCamera(int camNumber, IManagedCamera managedCamera, CamStreamManager manager, Util.OryxSetupInfo setupInfo)
         {
             this.camNumber = camNumber;
             this.managedCamera = managedCamera;
-            this.sessionPath = sessionPath;
             this.manager = manager;
             this.setupInfo = setupInfo;
-            commandQueue = manager.messageQueue;
-            fullFrameSize = this.setupInfo.frameSize;
-            settingsFileName = this.sessionPath + @"\" + "cam" + this.camNumber.ToString() + @"_cameraSettings.txt";
+            messageQueue = this.manager.messageQueue;
+            sessionPath = this.manager.sessionPath;
+            isEncodeable = (this.manager.input.isEncodable || this.manager.output.isEncodable) ? true : false;
 
             GetNodeMapsAndInitialize();
             LoadCameraSettings();
-            CameraStreamingLoop();
-            Console.WriteLine("CameraStreamingLoop has exited on camera {0}. Will now return.", this.camNumber.ToString());
-            return;
+
+            BasicStreamController controller = new BasicStreamController(oryxCamera: this);
+            controller.Run();
         }
 
         private void GetNodeMapsAndInitialize()
@@ -62,74 +64,127 @@ namespace FetchRig6
             oryxCameraSettings.SaveSettings(_printSettings: false);
         }
 
-        public class FFProcess
+
+        
+
+        public class StreamController
         {
-            private string _pipeName;
-            private string _videoFileName;
-            private string inputArgs;
-            private string outputArgs;
-            private string fullArgs;
-            public Process process;
-
-            public FFProcess(string pipeName, string videoFileName)
-            {
-                _pipeName = @"\\.\pipe\" + pipeName;
-                _videoFileName = videoFileName;
-                inputArgs = "-nostats -y -vsync 0 -f rawvideo -s 3208x2200 -pix_fmt gray -framerate 100 -i " + _pipeName + " -an -sn";
-                outputArgs = "-gpu 0 -vcodec h264_nvenc -r 100 -preset fast -qp 20 " + _videoFileName;
-                fullArgs = inputArgs + " " + outputArgs;
-            }
-
-            public void OpenWithStartInfo()
-            {
-                ProcessStartInfo startInfo = new ProcessStartInfo();
-                startInfo.FileName = "ffmpeg.exe";
-                startInfo.Arguments = fullArgs;
-                startInfo.CreateNoWindow = true;
-                startInfo.UseShellExecute = false;
-                startInfo.RedirectStandardInput = true;
-                process = Process.Start(startInfo);
-            }
+            public int imageCtr;
+            public FrameMetaData prevFrameMetaData;
+            public FrameMetaData currFrameMetaData;
+            public bool isMessageDequeueSuccess;
+            public CamStreamManager manager;
+            public ConcurrentQueue<ButtonCommands> messageQueue;
+            public IManagedCamera managedCamera;
         }
 
-        private void CameraStreamingLoop()
+        public class BasicStreamController : StreamController
         {
+            private Size inputSize;
+            private Size outputSize;
+            private int enqueueRate;
+            private BasicCamLoopState state;
+            private ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamQueue;
+            private bool isResizeNeeded;
 
-        }
-
-
-            
-
-
-
-        private void CloseOryxCamera(Util.CloseCameraMethod closeMethod)
-        {
-            if (!managedCamera.IsInitialized())
+            public BasicStreamController(OryxCamera oryxCamera)
             {
-                Console.WriteLine("Camera number {0} not initialized. Cannot execute DeviceReset or FactoryReset command", camNumber.ToString());
-                return;
+                manager = oryxCamera.manager;
+                if (manager.output.nChannels != 1) { throw new Exception(message: "BasicStreamInfo accommodates only one output channel!"); }
+
+                messageQueue = oryxCamera.messageQueue;
+                managedCamera = oryxCamera.managedCamera;
+                inputSize = manager.input.inputChannel.imageSize;
+                streamQueue = manager.output.streamQueue;
+                outputSize = manager.output.outputChannels[0].imageSize;
+                enqueueRate = manager.output.outputChannels[0].enqueueOrDequeueRate;
+                isResizeNeeded = !Equals(objA: manager.input.inputChannel.imageSize, objB: manager.output.outputChannels[0].imageSize);
+                state = BasicCamLoopState.Waiting;
             }
 
-            if (managedCamera.IsStreaming())
+            public void Reset()
             {
-                managedCamera.EndAcquisition();
-                Console.WriteLine("EndAcquisition executed from CloseOryxCamera block on camera {0}", camNumber.ToString());
+                imageCtr = 0;
+                prevFrameMetaData = new FrameMetaData();
+                currFrameMetaData = new FrameMetaData();
             }
 
-            if (closeMethod == Util.CloseCameraMethod.DeInit)
+            public void Run()
             {
-                managedCamera.DeInit();
-                Console.WriteLine("Camera number {0} deinitialized.", camNumber.ToString());
-            }
-            else if (closeMethod == Util.CloseCameraMethod.DeInitAndDeviceReset)
-            {
-                nodeMap.GetNode<ICommand>("DeviceReset").Execute();
-                Console.WriteLine("DeviceReset command executed on camera number {0}.", camNumber.ToString());
-            }
-            else if (closeMethod == Util.CloseCameraMethod.DeInitAndFactoryReset)
-            {
-                nodeMap.GetNode<ICommand>("FactoryReset").Execute();
-                Console.WriteLine("FactoryReset command executed on camera number {0}.", camNumber.ToString());
+                while (true)
+                {
+                    if (state == BasicCamLoopState.Waiting)
+                    {
+                        isMessageDequeueSuccess = messageQueue.TryDequeue(out ButtonCommands message);
+                        if (message == ButtonCommands.BeginAcquisition)
+                        {
+                            managedCamera.BeginAcquisition();
+                            continue;
+                        }
+                        else if (message == ButtonCommands.BeginStreaming)
+                        {
+                            if (!managedCamera.IsStreaming()) { managedCamera.BeginAcquisition(); }
+                            Reset();
+                            state = BasicCamLoopState.Streaming;
+                            continue;
+                        }
+                        else if (message == ButtonCommands.Exit)
+                        {
+                            state = BasicCamLoopState.Exit;
+                            continue;
+                        }
+
+                        // TODO: replace this waiting mechanism with a thread-synchronized timer
+                        Thread.Sleep(100);
+                        continue;
+                    }
+
+                    else if (state == BasicCamLoopState.Streaming)
+                    {
+                        try
+                        {
+                            using (IManagedImage rawImage = managedCamera.GetNextImage())
+                            {
+                                imageCtr += 1;
+                                long frameID = rawImage.ChunkData.FrameID;
+                                long timestamp = rawImage.ChunkData.Timestamp;
+
+                                if (imageCtr == 1)
+                                {
+                                    currFrameMetaData = new FrameMetaData(streamCtr: imageCtr, frameID: frameID, timestamp: timestamp);
+                                    continue;
+                                }
+
+                                prevFrameMetaData = currFrameMetaData;
+                                currFrameMetaData = new FrameMetaData(streamCtr: imageCtr, frameID: frameID, timestamp: timestamp);
+
+                                if (imageCtr % enqueueRate == 0)
+                                {
+                                    Mat fullMat = new Mat(rows: inputSize.Height, cols: inputSize.Width,
+                                        type: Emgu.CV.CvEnum.DepthType.Cv8U, channels: 1, data: rawImage.DataPtr, step: inputSize.Width);
+
+                                    if (isResizeNeeded)
+                                    {
+                                        Mat resizedMat = new Mat(size: outputSize, type: Emgu.CV.CvEnum.DepthType.Cv8U, channels: 1);
+                                        CvInvoke.Resize(src: fullMat, dst: resizedMat, dsize: outputSize, interpolation: Emgu.CV.CvEnum.Inter.Linear);
+                                        Tuple<Mat, FrameMetaData>[] output = Util.GetStreamOutput(mat: resizedMat, metaData: currFrameMetaData);
+                                        streamQueue.Enqueue(item: output);
+                                        fullMat.Dispose();
+                                    }
+                                    else
+                                    {
+                                        Tuple<Mat, FrameMetaData>[] output = Util.GetStreamOutput(mat: fullMat, metaData: currFrameMetaData);
+                                        streamQueue.Enqueue(item: output);
+                                    }
+                                }
+                            }
+                        }
+                        catch (SpinnakerException ex)
+                        {
+                            Console.WriteLine("Error in SimpleStreamingLoop: {0}", ex.Message);
+                        }
+                    }
+                }
             }
         }
     }

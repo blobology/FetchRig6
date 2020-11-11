@@ -13,10 +13,12 @@ namespace FetchRig6
         private OryxCamera cam;
         private Dictionary<Util.OryxSettingName, Util.SettingInfo> settingsToLoad;
         private const int MAXCHARS = 35;
+        private readonly string settingsFileName;
 
         public OryxCameraSettings(OryxCamera cam)
         {
             this.cam = cam;
+            settingsFileName = this.cam.sessionPath + @"\" + "cam" + cam.camNumber.ToString() + @"_cameraSettings.txt";
             settingsToLoad = cam.setupInfo.settingsToLoad;
 
             foreach (KeyValuePair<Util.OryxSettingName, Util.SettingInfo> entry in settingsToLoad)
@@ -417,13 +419,13 @@ namespace FetchRig6
             try
             {
                 // Check if file already exists. If yes, delete it.
-                if (File.Exists(cam.settingsFileName))
+                if (File.Exists(settingsFileName))
                 {
-                    File.Delete(cam.settingsFileName);
+                    File.Delete(settingsFileName);
                 }
 
                 // Create a new file.
-                using (StreamWriter sw = File.CreateText(cam.settingsFileName))
+                using (StreamWriter sw = File.CreateText(settingsFileName))
                 {
                     int level = 0;
 
@@ -447,7 +449,7 @@ namespace FetchRig6
                 // Write file contents on console if desired.     
                 if (_printSettings)
                 {
-                    using (StreamReader sr = File.OpenText(cam.settingsFileName))
+                    using (StreamReader sr = File.OpenText(settingsFileName))
                     {
                         string s = "";
                         while ((s = sr.ReadLine()) != null)
