@@ -3,6 +3,9 @@ using System.Linq;
 using System.Collections.Concurrent;
 using SharpDX.XInput;
 using System.IO.Ports;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Globalization;
 
 namespace FetchRig6
 {
@@ -38,16 +41,18 @@ namespace FetchRig6
     {
         public const int nControllableButtons = 10;
         private Form1 mainForm;
-        private ConcurrentQueue<ButtonCommands>[][] camControlMessageQueues;
+        private ConcurrentQueue<ButtonCommands>[][] messageQueues;
+        private ThreadManager.StreamGraph streamGraph;
         private Controller controller;
         public ControllerState controllerState;
         private string serialPortName = "COM3";
         private SerialPort serialPort;
 
-        public XBoxController(Form1 mainForm, ConcurrentQueue<ButtonCommands>[][] camControlMessageQueues)
+        public XBoxController(Form1 mainForm, ConcurrentQueue<ButtonCommands>[][] messageQueues, ThreadManager.StreamGraph streamGraph)
         {
             this.mainForm = mainForm;
-            this.camControlMessageQueues = camControlMessageQueues;
+            this.messageQueues = messageQueues;
+            this.streamGraph = streamGraph;
             controller = new Controller(userIndex: UserIndex.One);
             serialPort = new SerialPort(portName: serialPortName, baudRate: 115200, parity: Parity.None, dataBits: 8, stopBits: StopBits.One);
             serialPort.Open();
@@ -68,6 +73,9 @@ namespace FetchRig6
             ButtonCommands[] camButtons;
             ButtonCommands[] displayButtons;
             ButtonCommands[] streamProcessingButtons;
+
+            List<(int, int)> camMsgIdx;
+            List<(int, int)> streamMsgIdx;
 
             public ControllerState(XBoxController xBoxController)
             {
@@ -123,6 +131,31 @@ namespace FetchRig6
                     ButtonCommands.SaveThisImage,
                     ButtonCommands.Exit
                 };
+
+                camMsgIdx = new List<(int, int)>();
+                streamMsgIdx = new List<(int, int)>();
+                SetMessageDirections();
+            }
+
+            public void SetMessageDirections()
+            {
+                ThreadType[][] g = xBoxController.streamGraph.graph;
+                for (int i = 0; i < g.Length; i++)
+                {
+                    for (int j = 0; j < g[i].Length; j++)
+                    {
+                        int _i = i;
+                        int _j = j;
+                        if (g[i][j] == ThreadType.Camera)
+                        {
+                            camMsgIdx.Add((_i, _j));
+                        }
+                        else if (g[i][j] == ThreadType.SingleCameraStream || g[i][j] == ThreadType.MergeStreams)
+                        {
+                            streamMsgIdx.Add((_i, _j));
+                        }
+                    }
+                }
             }
 
             public void Update()
@@ -143,24 +176,21 @@ namespace FetchRig6
                         if (camButtons.Contains(buttonCommand))
                         {
                             ButtonCommands message;
-                            for (int j = 0; j < Form1.nCameras; j++)
+                            foreach(var idx in camMsgIdx)
                             {
                                 message = buttonCommand;
-                                xBoxController.camControlMessageQueues[0][j].Enqueue(message);
+                                xBoxController.messageQueues[idx.Item1][idx.Item2].Enqueue(message);
                             }
                         }
 
                         if (streamProcessingButtons.Contains(buttonCommand))
                         {
                             ButtonCommands message;
-                            for (int j = 0; j < Form1.nCameras; j++)
+                            foreach (var idx in streamMsgIdx)
                             {
                                 message = buttonCommand;
-                                xBoxController.camControlMessageQueues[1][j].Enqueue(message);
+                                xBoxController.messageQueues[idx.Item1][idx.Item2].Enqueue(message);
                             }
-
-                            message = buttonCommand;
-                            xBoxController.camControlMessageQueues[2][0].Enqueue(message);
                         }
 
                         if (soundButtons.Contains(buttonCommand))

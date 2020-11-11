@@ -33,6 +33,7 @@ namespace FetchRig6
         private ManagedSystem system;
         private IList<IManagedCamera> managedCameras;
         private Util.OryxSetupInfo[] oryxSetupInfos;
+        private ThreadManager threadManager;
         private XBoxController xBoxController;
         private string[] sessionPaths;
 
@@ -83,7 +84,10 @@ namespace FetchRig6
             }
 
             // Select Thread Architecture settings for this session:
+            StreamArchitecture architecture = StreamArchitecture.ThreeLevelBasic;
 
+            threadManager = new ThreadManager(architecture: architecture, sessionPaths: sessionPaths,
+                managedCameras: managedCameras, oryxSetups: oryxSetupInfos);
         }
 
         internal void Exit()

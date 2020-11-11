@@ -45,6 +45,7 @@ namespace FetchRig6
     public class StreamManager
     {
         public ThreadType threadType { get; set; }
+        public string sessionPath { get; set; }
 
         public class InputOutputManager
         {
@@ -65,12 +66,6 @@ namespace FetchRig6
                 isEncodeable = (encodeRate > 0) ? true : false;
             }
         }
-
-        public class StreamQueue
-        {
-            public int nChannels { get; }
-            public StreamChannel[] channels { get; }
-        }
     }
 
     public class CamStreamManager : StreamManager
@@ -79,9 +74,10 @@ namespace FetchRig6
         public Input input { get; set; }
         public Output output { get; set; }
         
-        public CamStreamManager(Size camFrameSize, ConcurrentQueue<ButtonCommands> messageQueue)
+        public CamStreamManager(Size camFrameSize, ConcurrentQueue<ButtonCommands> messageQueue, string sessionPath)
         {
             this.messageQueue = messageQueue;
+            this.sessionPath = sessionPath;
             threadType = ThreadType.Camera;
 
             // Input Manager Setup:
@@ -135,20 +131,19 @@ namespace FetchRig6
         }
     }
 
-    public class SingleCamStreamManager : StreamManager
+    public class SingleStreamManager : StreamManager
     {
         public ConcurrentQueue<ButtonCommands> messageQueue;
         public Input input { get; set; }
         public Output output { get; set; }
 
-        public SingleCamStreamManager(CamStreamManager.Output camOutputManager, ConcurrentQueue<ButtonCommands> messageQueue)
+        public SingleStreamManager(CamStreamManager.Output camOutputManager, ConcurrentQueue<ButtonCommands> messageQueue, string sessionPath)
         {
             this.messageQueue = messageQueue;
+            this.sessionPath = sessionPath;
 
-            // Inherit input specs from CamStreamManager
             input = new Input(inputChannels: camOutputManager.outputChannels, streamQueue: camOutputManager.streamQueue);
 
-            // Specify output specs:
             Size _outputChannelSize = new Size(width: 802, height: 550);
             StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
             output = new Output(outputChannels: _outputChannels);
@@ -209,9 +204,11 @@ namespace FetchRig6
         public Input input { get; set; }
         public Output output { get; set; }
 
-        public MergeStreamsManager(SingleCamStreamManager.Output[] singleStreamOutputManagers, ConcurrentQueue<ButtonCommands> messageQueue)
+        public MergeStreamsManager(SingleStreamManager.Output[] singleStreamOutputManagers,
+            ConcurrentQueue<ButtonCommands> messageQueue, string sessionPath)
         {
             this.messageQueue = messageQueue;
+            this.sessionPath = sessionPath;
 
             int nInputs = singleStreamOutputManagers.Length;
             StreamChannel[][] _inputChannels = new StreamChannel[nInputs][];
@@ -279,6 +276,18 @@ namespace FetchRig6
         }
     }
 
+    public class StreamThreadSetup
+    {
+        public static void SingleStreamThreadInit(int idx, SingleStreamManager manager)
+        {
+            
+        }
+
+        public static void MergeStreamsThreadInit(MergeStreamsManager manager)
+        {
+
+        }
+    }
 
     public class ThreadManager
     {
@@ -287,19 +296,49 @@ namespace FetchRig6
         string[] sessionPaths { get; }
         StreamGraph streamGraph { get; set; }
         ManagerBundle managerBundle { get; set; }
-        ManagedCamera[] managedCameras;
-        Util.OryxSetupInfo[] oryxSetups;
+        IList<IManagedCamera> managedCameras { get; }
+        Util.OryxSetupInfo[] oryxSetups { get; }
 
-        public ThreadManager(StreamArchitecture architecture, string[] sessionPaths, ManagedCamera[] managedCameras, Util.OryxSetupInfo[] oryxSetups)
+        public ThreadManager(StreamArchitecture architecture, string[] sessionPaths, IList<IManagedCamera> managedCameras, Util.OryxSetupInfo[] oryxSetups)
         {
             this.architecture = architecture;
             this.sessionPaths = sessionPaths;
             this.managedCameras = managedCameras;
             this.oryxSetups = oryxSetups;
-            streamGraph = new StreamGraph(architecture);
-            managerBundle = new ManagerBundle(graph: streamGraph);
+            streamGraph = new StreamGraph(this.architecture);
+            managerBundle = new ManagerBundle(graph: streamGraph, sessionPaths: this.sessionPaths);
+
+            SetupThreads();
         }
 
+        void SetupThreads()
+        {
+            for (int i = 0; i < streamGraph.nThreadLayers; i++)
+            {
+                for (int j = 0; j < streamGraph.nThreadsPerLayer[i]; j++)
+                {
+                    int _i = i;
+                    int _j = j;
+                    string _sessionPath = string.Copy(str: sessionPaths[j]);
+
+                    if (streamGraph.graph[i][j] == ThreadType.Camera)
+                    {
+                        threads[i][j] = new Thread(() => new OryxCamera(camNumber: _j, managedCamera: managedCameras[_j],
+                            sessionPath: _sessionPath, manager: managerBundle.camStreamManagers[_j], setupInfo: oryxSetups[_j]));
+                    }
+                    else if (streamGraph.graph[i][j] == ThreadType.SingleCameraStream)
+                    {
+                        SingleStreamManager manager = managerBundle.singleStreamManagers[_j].DeepClone();
+                        threads[i][j] = new Thread(() => StreamThreadSetup.SingleStreamThreadInit(idx: _j, manager: manager));
+                    }
+                    else if (streamGraph.graph[i][j] == ThreadType.MergeStreams)
+                    {
+                        MergeStreamsManager manager = managerBundle.mergeStreamsManager.DeepClone();
+                        threads[i][j] = new Thread(() => StreamThreadSetup.MergeStreamsThreadInit(manager: manager));
+                    }
+                }
+            }
+        }
 
         public void StartThreads()
         {
@@ -343,14 +382,15 @@ namespace FetchRig6
         public class ManagerBundle
         {
             private StreamGraph graph;
+            private string[] sessionPaths { get; }
             public CamStreamManager[] camStreamManagers { get; set; }
-            public SingleCamStreamManager[] singleStreamManagers { get; set; }
+            public SingleStreamManager[] singleStreamManagers { get; set; }
             public MergeStreamsManager mergeStreamsManager { get; set; }
-            
             public ConcurrentQueue<ButtonCommands>[][] messageQueues { get; private set; }
-            public ManagerBundle(StreamGraph graph)
+            public ManagerBundle(StreamGraph graph, string[] sessionPaths)
             {
                 this.graph = graph;
+                this.sessionPaths = sessionPaths;
                 MessageQueueSetup();
                 Setup();
             }
@@ -376,19 +416,22 @@ namespace FetchRig6
                 for (int j = 0; j < graph.nThreadsPerLayer[0]; j++)
                 {
                     Size _camFrameSize = new Size(width: 3208, height: 2200);
-                    camStreamManagers[j] = new CamStreamManager(camFrameSize: _camFrameSize, messageQueue: messageQueues[0][j]);
+                    camStreamManagers[j] = new CamStreamManager(camFrameSize: _camFrameSize,
+                        messageQueue: messageQueues[0][j], sessionPath: sessionPaths[j]);
                 }
 
-                SingleCamStreamManager.Output[] _singleStreamOutputs = new SingleCamStreamManager.Output[graph.nThreadsPerLayer[1]];
+                SingleStreamManager.Output[] _singleStreamOutputs = new SingleStreamManager.Output[graph.nThreadsPerLayer[1]];
                 for (int j = 0; j < graph.nThreadsPerLayer[1]; j++)
                 {
                     CamStreamManager.Output _camOutput = camStreamManagers[j].output;
-                    singleStreamManagers[j] = new SingleCamStreamManager(camOutputManager: _camOutput, messageQueue: messageQueues[1][j]);
+                    singleStreamManagers[j] = new SingleStreamManager(camOutputManager: _camOutput,
+                        messageQueue: messageQueues[1][j], sessionPath: sessionPaths[j]);
 
                     _singleStreamOutputs[j] = singleStreamManagers[j].output;
                 }
 
-                mergeStreamsManager = new MergeStreamsManager(singleStreamOutputManagers: _singleStreamOutputs, messageQueue: messageQueues[2][0]);
+                mergeStreamsManager = new MergeStreamsManager(singleStreamOutputManagers: _singleStreamOutputs,
+                    messageQueue: messageQueues[2][0], sessionPath: sessionPaths[0]);
             }
         }
     }
