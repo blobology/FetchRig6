@@ -83,11 +83,15 @@ namespace FetchRig6
                 Console.WriteLine("\n\n");
             }
 
-            // Select Thread Architecture settings for this session:
             StreamArchitecture architecture = StreamArchitecture.ThreeLevelBasic;
 
             threadManager = new ThreadManager(architecture: architecture, sessionPaths: sessionPaths,
                 managedCameras: managedCameras, oryxSetups: oryxSetupInfos);
+
+            xBoxController = new XBoxController(mainForm: this,
+                messageQueues: threadManager.managerBundle.messageQueues, streamGraph: threadManager.streamGraph);
+
+            threadManager.StartThreads();
         }
 
         internal void Exit()

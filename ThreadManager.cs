@@ -291,13 +291,13 @@ namespace FetchRig6
 
     public class ThreadManager
     {
-        Thread[][] threads;
-        StreamArchitecture architecture { get; }
-        string[] sessionPaths { get; }
-        StreamGraph streamGraph { get; set; }
-        ManagerBundle managerBundle { get; set; }
-        IList<IManagedCamera> managedCameras { get; }
-        Util.OryxSetupInfo[] oryxSetups { get; }
+        private Thread[][] threads;
+        public ManagerBundle managerBundle { get; set; }
+        private StreamArchitecture architecture { get; }
+        private string[] sessionPaths { get; }
+        internal StreamGraph streamGraph { get; set; }
+        private IList<IManagedCamera> managedCameras { get; }
+        private Util.OryxSetupInfo[] oryxSetups { get; }
 
         public ThreadManager(StreamArchitecture architecture, string[] sessionPaths, IList<IManagedCamera> managedCameras, Util.OryxSetupInfo[] oryxSetups)
         {
