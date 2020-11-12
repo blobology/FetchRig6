@@ -17,10 +17,6 @@ using SpinnakerNET.GenApi;
 
 namespace FetchRig6
 {
-
-
-
-
     public enum MainDisplayLoopState
     {
         Waiting,
@@ -35,6 +31,12 @@ namespace FetchRig6
         Streaming,
         Recording,
         Exit
+    }
+
+    public enum MessageHandlerStyle
+    {
+        Basic,
+        Advanced
     }
 
     public enum CameraLoopState
