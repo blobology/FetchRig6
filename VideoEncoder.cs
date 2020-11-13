@@ -22,7 +22,6 @@ namespace FetchRig6
             this.sessionPath = sessionPath;
         }
 
-
         public class FFProcess
         {
             private string _pipeName;

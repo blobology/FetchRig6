@@ -22,7 +22,6 @@ namespace FetchRig6
 
         private CamStreamManager manager;
         private ConcurrentQueue<ButtonCommands> messageQueue;
-        private ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamOutputQueue;
         private bool isEncodeable;
 
         // These fields will be accessed by an OryxCameraSettings object to set and save camera settings.
@@ -66,7 +65,6 @@ namespace FetchRig6
             oryxCameraSettings.SaveSettings(_printSettings: false);
         }
 
-
         public class MessageHandler
         {
             public MessageHandlerStyle style;
@@ -81,9 +79,21 @@ namespace FetchRig6
                     this.style = style;
                     nStates = Enum.GetValues(typeof(BasicCamLoopState)).Length;
                     nButtons = Enum.GetValues(typeof(ButtonCommands)).Length;
-                    nextState = new BasicCamLoopState[nStates, nButtons];
 
+                    InitializeStateTable();
                     GetStateTable();
+                }
+
+                void InitializeStateTable()
+                {
+                    nextState = new BasicCamLoopState[nStates, nButtons];
+                    for (int i = 0; i < nStates; i++)
+                    {
+                        for (int j = 0; j < nButtons; j++)
+                        {
+                            nextState[i, j] = (BasicCamLoopState)i;
+                        }
+                    }
                 }
 
                 void GetStateTable()
@@ -94,8 +104,13 @@ namespace FetchRig6
                         nextState[(int)BasicCamLoopState.Waiting, (int)ButtonCommands.BeginStreaming] = BasicCamLoopState.Streaming;
                         nextState[(int)BasicCamLoopState.Waiting, (int)ButtonCommands.Exit] = BasicCamLoopState.Exit;
 
+                        nextState[(int)BasicCamLoopState.Streaming, (int)ButtonCommands.StartRecording] = BasicCamLoopState.Recording;
                         nextState[(int)BasicCamLoopState.Streaming, (int)ButtonCommands.EndStreaming] = BasicCamLoopState.Waiting;
                         nextState[(int)BasicCamLoopState.Streaming, (int)ButtonCommands.Exit] = BasicCamLoopState.Exit;
+
+                        nextState[(int)BasicCamLoopState.Recording, (int)ButtonCommands.StopRecording] = BasicCamLoopState.Streaming;
+                        nextState[(int)BasicCamLoopState.Recording, (int)ButtonCommands.EndStreaming] = BasicCamLoopState.Waiting;
+                        nextState[(int)BasicCamLoopState.Recording, (int)ButtonCommands.Exit] = BasicCamLoopState.Exit;
                     }
                 }
 
@@ -170,12 +185,60 @@ namespace FetchRig6
                                 continue;
                             }
 
-                            // TODO: replace this waiting mechanism with a thread-synchronized timer
                             Thread.Sleep(100);
                             continue;
                         }
 
                         else if (state == BasicCamLoopState.Streaming)
+                        {
+                            try
+                            {
+                                using (IManagedImage rawImage = managedCamera.GetNextImage())
+                                {
+                                    imageCtr += 1;
+                                    long frameID = rawImage.ChunkData.FrameID;
+                                    long timestamp = rawImage.ChunkData.Timestamp;
+
+                                    if (imageCtr == 1)
+                                    {
+                                        currFrameMetaData = new FrameMetaData(streamCtr: imageCtr, frameID: frameID, timestamp: timestamp);
+                                        continue;
+                                    }
+
+                                    prevFrameMetaData = currFrameMetaData;
+                                    currFrameMetaData = new FrameMetaData(streamCtr: imageCtr, frameID: frameID, timestamp: timestamp);
+
+                                    if (imageCtr % enqueueRate == 0)
+                                    {
+                                        Mat fullMat = new Mat(rows: inputSize.Height, cols: inputSize.Width,
+                                            type: Emgu.CV.CvEnum.DepthType.Cv8U, channels: 1, data: rawImage.DataPtr, step: inputSize.Width);
+
+                                        if (isResizeNeeded)
+                                        {
+                                            Mat resizedMat = new Mat(size: outputSize, type: Emgu.CV.CvEnum.DepthType.Cv8U, channels: 1);
+                                            CvInvoke.Resize(src: fullMat, dst: resizedMat, dsize: outputSize, interpolation: Emgu.CV.CvEnum.Inter.Linear);
+                                            Tuple<Mat, FrameMetaData>[] output = Util.GetStreamOutput(mat: resizedMat, metaData: currFrameMetaData);
+                                            streamQueue.Enqueue(item: output);
+                                            fullMat.Dispose();
+                                        }
+                                        else
+                                        {
+                                            Tuple<Mat, FrameMetaData>[] output = Util.GetStreamOutput(mat: fullMat, metaData: currFrameMetaData);
+                                            streamQueue.Enqueue(item: output);
+                                        }
+                                    }
+                                }
+                            }
+                            catch (SpinnakerException ex)
+                            {
+                                Console.WriteLine("Error in SimpleStreamingLoop: {0}", ex.Message);
+                            }
+
+                            isMessageDequeueSuccess = messageQueue.TryDequeue(out ButtonCommands message);
+                            if (isMessageDequeueSuccess) { state = handler.UpdateState(state: state, button: message); }
+                        }
+
+                        else if (state == BasicCamLoopState.Recording)
                         {
                             try
                             {
