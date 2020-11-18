@@ -15,11 +15,12 @@ namespace FetchRig6
     public class VideoEncoder
     {
         private readonly string sessionPath;
-        private string videoFileName;
+        private string videoFileName { get; set; }
 
-        public VideoEncoder(string sessionPath)
+        public VideoEncoder(string sessionPath, string videoFileName)
         {
             this.sessionPath = sessionPath;
+            this.videoFileName = videoFileName;
         }
 
         public class FFProcess

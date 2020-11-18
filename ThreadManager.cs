@@ -46,11 +46,11 @@ namespace FetchRig6
     {
         public ThreadType threadType { get; set; }
         public string sessionPath { get; set; }
+        public bool isEncodable { get; set; }
 
         public class InputOutputManager
         {
-            public bool isEncodable { get; set; }
-            public string[] encodeFileName { get; set; }
+            public bool[] isEncodable { get; set; }
         }
 
         [Serializable]
@@ -60,12 +60,14 @@ namespace FetchRig6
             public bool isEncodeable { get; }
             public int encodeRate { get; }
             public int enqueueOrDequeueRate { get; }
+            public VideoEncoder videoEncoder;
             public StreamChannel(Size imageSize, int encodeRate=0, int enqueueOrDequeueRate=1)
             {
                 this.imageSize = imageSize;
                 this.encodeRate = encodeRate;
                 isEncodeable = (encodeRate > 0) ? true : false;
                 this.enqueueOrDequeueRate = enqueueOrDequeueRate;
+                videoEncoder = null;
             }
         }
     }
@@ -90,20 +92,17 @@ namespace FetchRig6
             Size _outputChannelSize = new Size(width: 802, height: 550);
             StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
             output = new Output(outputChannels: _outputChannels);
+
+            isEncodable = Util.CheckForEncodables(input1: input.isEncodable, input2: output.isEncodable);
         }
 
         public class Input : InputOutputManager
         {
             public StreamChannel inputChannel { get; set; }
-
             public Input(StreamChannel inputChannel)
             {
                 this.inputChannel = inputChannel;
-                if (inputChannel.isEncodeable)
-                {
-                    isEncodable = true;
-                    encodeFileName = new string[1] { "test" };
-                }
+                isEncodable = Util.CheckForEncodables(streamChannel: this.inputChannel);
             }
         }
 
@@ -113,21 +112,11 @@ namespace FetchRig6
             public StreamChannel[] outputChannels { get; set; }
             public ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> streamQueue;
             public int nChannels { get; }
-
             public Output(StreamChannel[] outputChannels)
             {
                 nChannels = outputChannels.Length;
                 this.outputChannels = outputChannels;
-                encodeFileName = new string[nChannels];
-                for (int i = 0; i < outputChannels.Length; i++)
-                {
-                    if (outputChannels[i].isEncodeable)
-                    {
-                        isEncodable = true;
-                        encodeFileName[i] = "test_" + i.ToString();
-                    }
-                    else { encodeFileName[i] = null; }
-                }
+                isEncodable = Util.CheckForEncodables(streamChannels: this.outputChannels);
                 streamQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
             }
         }
@@ -149,6 +138,7 @@ namespace FetchRig6
             Size _outputChannelSize = new Size(width: 802, height: 550);
             StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
             output = new Output(outputChannels: _outputChannels);
+            isEncodable = Util.CheckForEncodables(input1: input.isEncodable, input2: output.isEncodable);
         }
 
         public class Input : InputOutputManager
@@ -160,16 +150,7 @@ namespace FetchRig6
             {
                 nChannels = inputChannels.Length;
                 this.inputChannels = inputChannels;
-                encodeFileName = new string[nChannels];
-                for (int i = 0; i < inputChannels.Length; i++)
-                {
-                    if (inputChannels[i].isEncodeable)
-                    {
-                        isEncodable = true;
-                        encodeFileName[i] = "inputFileTest_" + i.ToString();
-                    }
-                    else { encodeFileName[i] = null; }
-                }
+                isEncodable = Util.CheckForEncodables(streamChannels: this.inputChannels);
                 this.streamQueue = streamQueue;
             }
         }
@@ -185,16 +166,7 @@ namespace FetchRig6
             {
                 nChannels = outputChannels.Length;
                 this.outputChannels = outputChannels;
-                encodeFileName = new string[nChannels];
-                for (int i = 0; i < outputChannels.Length; i++)
-                {
-                    if (outputChannels[i].isEncodeable)
-                    {
-                        isEncodable = true;
-                        encodeFileName[i] = "outputFileTest_" + i.ToString();
-                    }
-                    else { encodeFileName[i] = null; }
-                }
+                isEncodable = Util.CheckForEncodables(streamChannels: this.outputChannels);
                 streamQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
             }
         }
@@ -226,6 +198,8 @@ namespace FetchRig6
             Size _outputChannelSize = new Size(width: 802, height: 1100);
             StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
             output = new Output(outputChannels: _outputChannels);
+
+            isEncodable = Util.CheckForEncodables(input: output.isEncodable);
         }
 
         public class Input : InputOutputManager
@@ -246,9 +220,8 @@ namespace FetchRig6
                     nChannels[i] = inputChannels[i].Length;
                 }
 
-                // Disallow encoding of input streams on this thread:
-                isEncodable = false;
-                encodeFileName = null;
+                // Disallow encoding of input streams on merge streams thread:
+                isEncodable = null;
             }
         }
 
@@ -263,16 +236,7 @@ namespace FetchRig6
             {
                 nChannels = outputChannels.Length;
                 this.outputChannels = outputChannels;
-                encodeFileName = new string[nChannels];
-                for (int i = 0; i < outputChannels.Length; i++)
-                {
-                    if (outputChannels[i].isEncodeable)
-                    {
-                        isEncodable = true;
-                        encodeFileName[i] = "outputFileTest_" + i.ToString();
-                    }
-                    else { encodeFileName[i] = null; }
-                }
+                isEncodable = Util.CheckForEncodables(streamChannels: this.outputChannels);
                 displayQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
             }
         }

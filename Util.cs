@@ -105,6 +105,46 @@ namespace FetchRig6
             return new Tuple<Mat, FrameMetaData>[2] { metaMat1, metaMat2 };
         }
 
+        public static bool CheckForEncodables(bool[] input)
+        {
+            for (int i = 0; i < input.Length; i++)
+            {
+                if (input[i]) { return true; }
+            }
+            return false;
+        }
+
+        public static bool CheckForEncodables(bool[] input1, bool[] input2)
+        {
+            for (int i = 0; i < input1.Length; i++)
+            {
+                if (input1[i]) { return true; }
+            }
+            for (int i = 0; i < input2.Length; i++)
+            {
+                if (input2[i]) { return true; }
+            }
+            return false;
+        }
+
+        public static bool[] CheckForEncodables(StreamManager.StreamChannel streamChannel)
+        {
+            bool[] result = new bool[1];
+            if (streamChannel.isEncodeable) { result[1] = true; }
+            else { result[1] = false; }
+            return result;
+        }
+
+        public static bool[] CheckForEncodables(StreamManager.StreamChannel[] streamChannels)
+        {
+            bool[] result = new bool[streamChannels.Length];
+            for (int i = 0; i < streamChannels.Length; i++)
+            {
+                if (streamChannels[i].isEncodeable) { result[i] = true; }
+                else { result[i] = false; }
+            }
+            return result;
+        }
 
         public static string[] SetDataWritePaths(AnimalName animalName, int nCameras=2)
         {
