@@ -18,11 +18,8 @@ namespace FetchRig6
 {
     public class OryxCamera
     {
-        
-
         private CamStreamManager manager;
         private ConcurrentQueue<ButtonCommands> messageQueue;
-        private bool isEncodeable;
 
         // These fields will be accessed by an OryxCameraSettings object to set and save camera settings.
         public readonly int camNumber;
@@ -41,7 +38,6 @@ namespace FetchRig6
             this.setupInfo = setupInfo;
             messageQueue = this.manager.messageQueue;
             sessionPath = this.manager.sessionPath;
-            isEncodeable = (this.manager.input.isEncodable || this.manager.output.isEncodable) ? true : false;
 
             GetNodeMapsAndInitialize();
             LoadCameraSettings();

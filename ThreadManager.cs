@@ -72,6 +72,7 @@ namespace FetchRig6
         }
     }
 
+    [Serializable]
     public class CamStreamManager : StreamManager
     {
         public ConcurrentQueue<ButtonCommands> messageQueue;
@@ -96,6 +97,7 @@ namespace FetchRig6
             isEncodable = Util.CheckForEncodables(input1: input.isEncodable, input2: output.isEncodable);
         }
 
+        [Serializable]
         public class Input : InputOutputManager
         {
             public StreamChannel inputChannel { get; set; }
@@ -122,6 +124,7 @@ namespace FetchRig6
         }
     }
 
+    [Serializable]
     public class SingleStreamManager : StreamManager
     {
         public ConcurrentQueue<ButtonCommands> messageQueue;
@@ -141,6 +144,7 @@ namespace FetchRig6
             isEncodable = Util.CheckForEncodables(input1: input.isEncodable, input2: output.isEncodable);
         }
 
+        [Serializable]
         public class Input : InputOutputManager
         {
             public StreamChannel[] inputChannels { get; set; }
@@ -172,6 +176,7 @@ namespace FetchRig6
         }
     }
 
+    [Serializable]
     public class MergeStreamsManager : StreamManager
     {
         public ConcurrentQueue<ButtonCommands> messageQueue;
@@ -202,6 +207,7 @@ namespace FetchRig6
             isEncodable = Util.CheckForEncodables(input: output.isEncodable);
         }
 
+        [Serializable]
         public class Input : InputOutputManager
         {
             public int nInputQueues { get; }
@@ -228,8 +234,8 @@ namespace FetchRig6
         [Serializable]
         public class Output : InputOutputManager
         {
-            StreamChannel[] outputChannels { get; set; }
-            ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> displayQueue { get; }
+            public StreamChannel[] outputChannels { get; set; }
+            public ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> displayQueue { get; }
             public int nChannels { get; }
 
             public Output(StreamChannel[] outputChannels)
@@ -242,16 +248,163 @@ namespace FetchRig6
         }
     }
 
-    public class StreamThreadSetup
+    public static class BasicStreamThreadSetups
     {
         public static void SingleStreamThreadInit(int idx, SingleStreamManager manager)
         {
-            
+            bool isResizeNeeded = false;
+            Mat background = new Mat(size: manager.output.outputChannels[0].imageSize, type: Emgu.CV.CvEnum.DepthType.Cv8U, channels: 1);
+            bool resetBackground = true;
+            bool saveThisImage = false;
+            bool isMessageDequeueSuccess;
+            bool isInputDequeueSuccess;
+            StreamLoopState state = StreamLoopState.Waiting;
+
+            while (true)
+            {
+                isInputDequeueSuccess = manager.input.streamQueue.TryDequeue(out Tuple<Mat, FrameMetaData>[] input);
+                if (isInputDequeueSuccess)
+                {
+                    ProcessInput();
+                }
+
+                UpdateLoopState();
+                if (state == StreamLoopState.Streaming) { continue; }
+                else if (state == StreamLoopState.Waiting) { Thread.Sleep(100); }
+                else if (state == StreamLoopState.Exit) { return; }
+
+                void ProcessInput()
+                {
+                    Mat outputMat = input[0].Item1;
+                    FrameMetaData outputMeta = input[0].Item2;
+
+                    if (isResizeNeeded)
+                    {
+                        // TODO: Implement resize operation
+                    }
+
+                    if (saveThisImage)
+                    {
+                        Console.WriteLine("SaveThisImage message received on SingleStreamThread");
+                        saveThisImage = false;
+                    }
+
+                    if (resetBackground)
+                    {
+                        Console.WriteLine("ResetBackground message received on SingleStreamThread");
+                        outputMat.CopyTo(background);
+                        resetBackground = false;
+                    }
+
+                    Tuple<Mat, FrameMetaData>[] output = Util.GetStreamOutput(mat: outputMat, metaData: outputMeta);
+                    manager.output.streamQueue.Enqueue(item: output);
+                }
+
+                void UpdateLoopState()
+                {
+                    isMessageDequeueSuccess = manager.messageQueue.TryDequeue(out ButtonCommands message);
+                    if (isMessageDequeueSuccess)
+                    {
+                        if (message == ButtonCommands.BeginStreaming)
+                        {
+                            Console.WriteLine("BeginStreaming command received in SingleStreamThread");
+                            state = StreamLoopState.Streaming;
+                        }
+                        else if (message == ButtonCommands.ResetBackgroundImage)
+                        {
+                            resetBackground = true;
+                        }
+                        else if (message == ButtonCommands.SaveThisImage)
+                        {
+                            saveThisImage = true;
+                        }
+                        else if (message == ButtonCommands.EndStreaming)
+                        {
+                            state = StreamLoopState.Waiting;
+                        }
+                        else if (message == ButtonCommands.Exit)
+                        {
+                            state = StreamLoopState.Exit;
+                        }
+                    }
+                }
+            }
         }
 
         public static void MergeStreamsThreadInit(MergeStreamsManager manager)
         {
+            bool isMessageDequeueSuccess;
+            int nQueues = manager.input.nInputQueues;
+            bool[] isInputDequeueSuccess = new bool[nQueues];
+            StreamLoopState state = StreamLoopState.Waiting;
 
+            while (true)
+            {
+                UpdateLoopState();
+                if (state == StreamLoopState.Waiting) { Thread.Sleep(100); continue; }
+                else if (state == StreamLoopState.Exit) { return; }
+
+                Tuple<Mat, FrameMetaData>[][] input = new Tuple<Mat, FrameMetaData>[nQueues][];
+                for (int i = 0; i < nQueues; i++)
+                {
+                    while(!isInputDequeueSuccess[i])
+                    {
+                        isInputDequeueSuccess[i] = manager.input.streamQueues[i].TryDequeue(out input[i]);
+                        if (isInputDequeueSuccess[i])
+                        {
+                            isInputDequeueSuccess[i] = false;
+                            continue;
+                        }
+                        else
+                        {
+                            UpdateLoopState();
+                            if (state == StreamLoopState.Waiting) { Thread.Sleep(100); break; }
+                            else if (state == StreamLoopState.Exit) { return; }
+                        }
+                    }
+                }
+
+                ProcessInput();
+                continue;
+
+                void ProcessInput()
+                {
+                    Mat outputMat = new Mat(size: manager.output.outputChannels[0].imageSize, type: Emgu.CV.CvEnum.DepthType.Cv8U, channels: 1);
+                    CvInvoke.VConcat(src1: input[0][0].Item1, src2: input[1][0].Item1, dst: outputMat);
+                    FrameMetaData outputMeta = input[0][0].Item2;
+                    Tuple<Mat, FrameMetaData>[] output = Util.GetStreamOutput(mat: outputMat, metaData: outputMeta);
+                    manager.output.displayQueue.Enqueue(item: output);
+                }
+
+                void UpdateLoopState()
+                {
+                    isMessageDequeueSuccess = manager.messageQueue.TryDequeue(out ButtonCommands message);
+                    if (isMessageDequeueSuccess)
+                    {
+                        if (message == ButtonCommands.BeginStreaming)
+                        {
+                            Console.WriteLine("BeginStreaming command received in MergeStreamsThread");
+                            state = StreamLoopState.Streaming;
+                        }
+                        else if (message == ButtonCommands.EndStreaming)
+                        {
+                            Console.WriteLine("EndStreaming command received in MergeStreamsThread");
+                            state = StreamLoopState.Waiting;
+                        }
+                        else if (message == ButtonCommands.Exit)
+                        {
+                            state = StreamLoopState.Exit;
+                        }
+                    }
+                }
+            }
+        }
+
+        enum StreamLoopState
+        {
+            Waiting,
+            Streaming,
+            Exit
         }
     }
 
@@ -272,8 +425,7 @@ namespace FetchRig6
             this.managedCameras = managedCameras;
             this.oryxSetups = oryxSetups;
             streamGraph = new StreamGraph(this.architecture);
-            managerBundle = new ManagerBundle(graph: streamGraph, sessionPaths: this.sessionPaths);
-
+            managerBundle = new ManagerBundle(graph: streamGraph, sessionPaths: this.sessionPaths, camFrameSize: oryxSetups[0].frameSize);
             SetupThreads();
         }
 
@@ -285,22 +437,22 @@ namespace FetchRig6
                 {
                     int _i = i;
                     int _j = j;
-                    string _sessionPath = string.Copy(str: sessionPaths[j]);
 
                     if (streamGraph.graph[i][j] == ThreadType.Camera)
                     {
+                        CamStreamManager _manager = managerBundle.camStreamManagers[_j].DeepClone();
                         threads[i][j] = new Thread(() => new OryxCamera(camNumber: _j, managedCamera: managedCameras[_j],
-                            manager: managerBundle.camStreamManagers[_j], setupInfo: oryxSetups[_j]));
+                            manager: _manager, setupInfo: oryxSetups[_j]));
                     }
                     else if (streamGraph.graph[i][j] == ThreadType.SingleCameraStream)
                     {
-                        SingleStreamManager manager = managerBundle.singleStreamManagers[_j].DeepClone();
-                        threads[i][j] = new Thread(() => StreamThreadSetup.SingleStreamThreadInit(idx: _j, manager: manager));
+                        SingleStreamManager _manager = managerBundle.singleStreamManagers[_j].DeepClone();
+                        threads[i][j] = new Thread(() => BasicStreamThreadSetups.SingleStreamThreadInit(idx: _j, manager: _manager));
                     }
                     else if (streamGraph.graph[i][j] == ThreadType.MergeStreams)
                     {
-                        MergeStreamsManager manager = managerBundle.mergeStreamsManager.DeepClone();
-                        threads[i][j] = new Thread(() => StreamThreadSetup.MergeStreamsThreadInit(manager: manager));
+                        MergeStreamsManager _manager = managerBundle.mergeStreamsManager.DeepClone();
+                        threads[i][j] = new Thread(() => BasicStreamThreadSetups.MergeStreamsThreadInit(manager: _manager));
                     }
                 }
             }
@@ -310,7 +462,6 @@ namespace FetchRig6
         {
             for (int i = 0; i < streamGraph.nThreadLayers; i++)
             {
-
                 for (int j = 0; j < streamGraph.nThreadsPerLayer[i]; j++)
                 {
                     threads[i][j].Start();
@@ -328,8 +479,7 @@ namespace FetchRig6
             public StreamGraph(StreamArchitecture architecture)
             {
                 this.architecture = architecture;
-
-                if (architecture == StreamArchitecture.ThreeLevelBasic)
+                if (this.architecture == StreamArchitecture.ThreeLevelBasic)
                 {
                     nThreadLayers = 3;
                     nThreadsPerLayer = new int[] { 2, 2, 1 };
@@ -353,10 +503,12 @@ namespace FetchRig6
             public SingleStreamManager[] singleStreamManagers { get; set; }
             public MergeStreamsManager mergeStreamsManager { get; set; }
             public ConcurrentQueue<ButtonCommands>[][] messageQueues { get; private set; }
-            public ManagerBundle(StreamGraph graph, string[] sessionPaths)
+            private Size camFrameSize { get; }
+            public ManagerBundle(StreamGraph graph, string[] sessionPaths, Size camFrameSize)
             {
                 this.graph = graph;
                 this.sessionPaths = sessionPaths;
+                this.camFrameSize = camFrameSize;
                 MessageQueueSetup();
                 Setup();
             }
@@ -381,8 +533,7 @@ namespace FetchRig6
 
                 for (int j = 0; j < graph.nThreadsPerLayer[0]; j++)
                 {
-                    Size _camFrameSize = new Size(width: 3208, height: 2200);
-                    camStreamManagers[j] = new CamStreamManager(camFrameSize: _camFrameSize,
+                    camStreamManagers[j] = new CamStreamManager(camFrameSize: camFrameSize,
                         messageQueue: messageQueues[0][j], sessionPath: sessionPaths[j]);
                 }
 
