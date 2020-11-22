@@ -56,17 +56,26 @@ namespace FetchRig6
         [Serializable]
         public class StreamChannel
         {
-            public Size imageSize { get; set; }
+            public Size imageSize { get; }
+            public int enqueueOrDequeueRate { get; }
             public bool isEncodeable { get; }
             public int encodeRate { get; }
-            public int enqueueOrDequeueRate { get; }
             public VideoEncoder videoEncoder;
-            public StreamChannel(Size imageSize, int encodeRate=0, int enqueueOrDequeueRate=1)
+
+            public StreamChannel(Size imageSize, int enqueueOrDequeueRate=1)
             {
                 this.imageSize = imageSize;
-                this.encodeRate = encodeRate;
-                isEncodeable = (encodeRate > 0) ? true : false;
                 this.enqueueOrDequeueRate = enqueueOrDequeueRate;
+                isEncodeable = false;
+                encodeRate = 0;
+                videoEncoder = null;
+            }
+            public StreamChannel(Size imageSize, int enqueueOrDequeueRate, int encodeRate)
+            {
+                this.imageSize = imageSize;
+                this.enqueueOrDequeueRate = enqueueOrDequeueRate;
+                isEncodeable = true;
+                this.encodeRate = encodeRate;
                 videoEncoder = null;
             }
         }
@@ -78,22 +87,51 @@ namespace FetchRig6
         public ConcurrentQueue<ButtonCommands> messageQueue;
         public Input input { get; set; }
         public Output output { get; set; }
-        
-        public CamStreamManager(Size camFrameSize, ConcurrentQueue<ButtonCommands> messageQueue, string sessionPath)
+
+        public CamStreamManager(ConcurrentQueue<ButtonCommands> messageQueue, string sessionPath, CamStreamManagerSetup setupStyle)
+        {
+            this.messageQueue = messageQueue;
+            this.sessionPath = sessionPath;
+            threadType = ThreadType.Camera;
+
+            if (setupStyle == CamStreamManagerSetup.BasicStream)
+            {
+                // Input Manager Setup:
+                Size _camFrameSize = new Size(3208, 2200);
+                StreamChannel inputChannel = new StreamChannel(imageSize: _camFrameSize, enqueueOrDequeueRate: 1);
+                input = new Input(inputChannel: inputChannel);
+
+                // Output Manager Setup:
+                Size _outputChannelSize = new Size(802, 550);
+                StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
+                output = new Output(outputChannels: _outputChannels);
+                isEncodable = false;
+            }
+
+            else if (setupStyle == CamStreamManagerSetup.BasicStreamAndRecord)
+            {
+
+            }
+
+            else
+            {
+                throw new ArgumentException(message: "Currently unsupported CamStreamManagerSetup Style");
+            }
+        }
+
+        public CamStreamManager(StreamChannel inputChannel, StreamChannel[] outputChannels, ConcurrentQueue<ButtonCommands> messageQueue, string sessionPath)
         {
             this.messageQueue = messageQueue;
             this.sessionPath = sessionPath;
             threadType = ThreadType.Camera;
 
             // Input Manager Setup:
-            StreamChannel inputChannel = new StreamChannel(imageSize: camFrameSize);
             input = new Input(inputChannel: inputChannel);
 
             // Output Manager Setup:
-            Size _outputChannelSize = new Size(width: 802, height: 550);
-            StreamChannel[] _outputChannels = new StreamChannel[] { new StreamChannel(imageSize: _outputChannelSize) };
-            output = new Output(outputChannels: _outputChannels);
+            output = new Output(outputChannels: outputChannels);
 
+            // Check Input and Output Managers for encodable channels
             isEncodable = Util.CheckForEncodables(input1: input.isEncodable, input2: output.isEncodable);
         }
 
@@ -122,6 +160,13 @@ namespace FetchRig6
                 streamQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
             }
         }
+
+        public enum CamStreamManagerSetup
+        {
+            BasicStream,
+            BasicStreamAndRecord,
+            Advanced
+        }
     }
 
     [Serializable]
@@ -130,6 +175,28 @@ namespace FetchRig6
         public ConcurrentQueue<ButtonCommands> messageQueue;
         public Input input { get; set; }
         public Output output { get; set; }
+
+        public SingleStreamManager(CamStreamManager.Output camOutputManager, ConcurrentQueue<ButtonCommands> messageQueue,
+            string sessionPath, SingleStreamManangerSetup setupStyle)
+        {
+            this.messageQueue = messageQueue;
+            this.sessionPath = sessionPath;
+
+            if (setupStyle == SingleStreamManangerSetup.BasicStream)
+            {
+                
+            }
+
+            else if (setupStyle == SingleStreamManangerSetup.BasicStreamAndRecord)
+            {
+
+            }
+
+            else
+            {
+                throw new ArgumentException(message: "Currently unsupported SingleStreamManagerSetup Style");
+            }
+        }
 
         public SingleStreamManager(CamStreamManager.Output camOutputManager, ConcurrentQueue<ButtonCommands> messageQueue, string sessionPath)
         {
@@ -173,6 +240,13 @@ namespace FetchRig6
                 isEncodable = Util.CheckForEncodables(streamChannels: this.outputChannels);
                 streamQueue = new ConcurrentQueue<Tuple<Mat, FrameMetaData>[]>();
             }
+        }
+
+        public enum SingleStreamManangerSetup
+        {
+            BasicStream,
+            BasicStreamAndRecord,
+            Advanced
         }
     }
 
