@@ -36,6 +36,8 @@ namespace FetchRig6
         private ThreadManager threadManager;
         private XBoxController xBoxController;
         private string[] sessionPaths;
+        private System.Windows.Forms.Timer displayTimer;
+        private ConcurrentQueue<Tuple<Mat, FrameMetaData>[]> displayQueue;
 
         public Form1()
         {
@@ -91,12 +93,30 @@ namespace FetchRig6
             xBoxController = new XBoxController(mainForm: this,
                 messageQueues: threadManager.managerBundle.messageQueues, streamGraph: threadManager.streamGraph);
 
+            displayTimer = new System.Windows.Forms.Timer();
+            displayTimer.Interval = 2;
+            displayTimer.Tick += DisplayTimerEventProcessor;
+            displayTimer.Enabled = true;
+
+            displayQueue = threadManager.managerBundle.mergeStreamsManager.output.displayQueue;
             threadManager.StartThreads();
         }
 
         internal void Exit()
         {
             // TODO: call this when exiting program
+        }
+
+        public void DisplayTimerEventProcessor(Object sender, EventArgs e)
+        {
+            xBoxController.controllerState.Update();
+            bool isDequeueSuccess;
+
+            isDequeueSuccess = displayQueue.TryDequeue(out Tuple<Mat, FrameMetaData>[] result);
+            if (isDequeueSuccess)
+            {
+                imageBox1.Image = result[0].Item1;
+            }
         }
     }
 }

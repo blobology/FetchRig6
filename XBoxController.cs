@@ -171,7 +171,10 @@ namespace FetchRig6
                 {
                     if (prevButtonStates[i] == false && currButtonStates[i] == true)
                     {
+                        
                         ButtonCommands buttonCommand = (ButtonCommands)Enum.Parse(typeof(ButtonCommands), controllableButtonCommands[i]);
+
+                        Console.WriteLine(buttonCommand);
 
                         if (camButtons.Contains(buttonCommand))
                         {
@@ -180,6 +183,7 @@ namespace FetchRig6
                             {
                                 message = buttonCommand;
                                 xBoxController.messageQueues[idx.Item1][idx.Item2].Enqueue(message);
+                                Console.WriteLine("sending message from xBox controller to camera: {0}", message);
                             }
                         }
 

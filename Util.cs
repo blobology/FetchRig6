@@ -130,8 +130,8 @@ namespace FetchRig6
         public static bool[] CheckForEncodables(StreamManager.StreamChannel streamChannel)
         {
             bool[] result = new bool[1];
-            if (streamChannel.isEncodeable) { result[1] = true; }
-            else { result[1] = false; }
+            if (streamChannel.isEncodeable) { result[0] = true; }
+            else { result[0] = false; }
             return result;
         }
 

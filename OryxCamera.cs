@@ -43,6 +43,7 @@ namespace FetchRig6
             LoadCameraSettings();
 
             StreamController.BasicStreamController controller = new StreamController.BasicStreamController(oryxCamera: this);
+            Console.WriteLine("BasicStreamController set to Run");
             controller.Run();
         }
 
@@ -145,6 +146,7 @@ namespace FetchRig6
                     if (manager.output.nChannels != 1) { throw new Exception(message: "BasicStreamInfo accommodates only one output channel!"); }
 
                     messageQueue = oryxCamera.messageQueue;
+                    Console.WriteLine("messageQueue: {0}", messageQueue);
                     managedCamera = oryxCamera.managedCamera;
                     inputSize = manager.input.inputChannel.imageSize;
                     streamQueue = manager.output.streamQueue;
@@ -164,6 +166,7 @@ namespace FetchRig6
 
                 public void Run()
                 {
+                    Console.WriteLine("Run was called");
                     while (true)
                     {
                         if (state == BasicCamLoopState.Waiting)
@@ -171,6 +174,7 @@ namespace FetchRig6
                             isMessageDequeueSuccess = messageQueue.TryDequeue(out ButtonCommands message);
                             if (isMessageDequeueSuccess)
                             {
+                                Console.WriteLine("message received on camera: {0}", message);
                                 state = handler.UpdateState(state: state, button: message);
                                 
                                 if (state == BasicCamLoopState.Streaming && !managedCamera.IsStreaming())
